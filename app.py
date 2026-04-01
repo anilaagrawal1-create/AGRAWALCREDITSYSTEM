@@ -1,29 +1,28 @@
 from flask import Flask, render_template, request
 
-app = Flask(__name__)
+# IMPORTANT: explicitly define template folder
+app = Flask(__name__, template_folder="templates")
+
 
 # -------------------------------
-# CREDIT DECISION FUNCTION
+# SAFE CREDIT FUNCTION
 # -------------------------------
 def credit_decision(cibil, income, emi, enquiries, dpd30, dpd60, dpd90):
 
-    foir = emi / income if income > 0 else 0
+    # Avoid division error
+    if income == 0:
+        foir = 0
+    else:
+        foir = emi / income
 
-    score = (cibil/10) - (foir*50) - (enquiries*2) - (dpd30*10) - (dpd60*20) - (dpd90*30)
+    # Simple safe scoring
+    score = (cibil/10) - (foir*50) - (enquiries*2)
 
-    probability = 1/(1+pow(2.718, -( -5 
-        + 0.01*(700-cibil) 
-        + 3*foir 
-        + 0.2*enquiries 
-        + 1.5*dpd30 
-        + 2.5*dpd60 
-        + 3.5*dpd90 )))
-
+    # Simple probability
+    probability = min(max((700 - cibil)/100 + foir + enquiries*0.05, 0), 1)
     probability_percent = round(probability * 100, 2)
 
-    # -------------------------------
-    # ANIL RULES + FOIR CONTROL
-    # -------------------------------
+    # RULES
     if foir > 0.5:
         decision = "REJECT (FOIR > 50%)"
     elif enquiries > 10 or dpd90 >= 1:
@@ -35,9 +34,7 @@ def credit_decision(cibil, income, emi, enquiries, dpd30, dpd60, dpd90):
     else:
         decision = "REJECT"
 
-    # -------------------------------
-    # RISK CATEGORY
-    # -------------------------------
+    # Risk
     if probability_percent < 30:
         risk = "LOW"
     elif probability_percent < 60:
@@ -45,18 +42,18 @@ def credit_decision(cibil, income, emi, enquiries, dpd30, dpd60, dpd90):
     else:
         risk = "HIGH"
 
-    return probability_percent, round(score,2), decision, risk, round(foir*100,2)
+    return probability_percent, round(score, 2), decision, risk, round(foir*100, 2)
 
 
 # -------------------------------
-# HOME ROUTE
+# ROUTE
 # -------------------------------
 @app.route("/", methods=["GET", "POST"])
 def home():
     result = None
 
-    try:
-        if request.method == "POST":
+    if request.method == "POST":
+        try:
             cibil = float(request.form.get("cibil", 0))
             income = float(request.form.get("income", 0))
             emi = float(request.form.get("emi", 0))
@@ -77,22 +74,21 @@ def home():
                 "foir": foir
             }
 
-    except Exception as e:
-        # Show error instead of crashing
-        result = {
-            "decision": "ERROR",
-            "score": "-",
-            "probability": "-",
-            "risk": "-",
-            "foir": "-",
-            "error": str(e)
-        }
+        except Exception as e:
+            result = {
+                "decision": "ERROR",
+                "probability": "-",
+                "score": "-",
+                "risk": "-",
+                "foir": "-",
+                "error": str(e)
+            }
 
     return render_template("index.html", result=result)
 
 
 # -------------------------------
-# RUN APP (LOCAL + RENDER SAFE)
+# MAIN
 # -------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
